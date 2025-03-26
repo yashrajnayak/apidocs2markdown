@@ -11,13 +11,21 @@ import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javasc
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import shell from 'react-syntax-highlighter/dist/esm/languages/prism/shell-session';
+import graphql from 'react-syntax-highlighter/dist/esm/languages/prism/graphql';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import http from 'react-syntax-highlighter/dist/esm/languages/prism/http';
 
 // Register languages
 SyntaxHighlighter.registerLanguage('typescript', typescript);
 SyntaxHighlighter.registerLanguage('javascript', javascript);
 SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('shell', shell);
 SyntaxHighlighter.registerLanguage('json', json);
 SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('graphql', graphql);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('http', http);
 
 interface PreviewProps {
   markdown?: string;
@@ -36,12 +44,27 @@ export function Preview({ markdown }: PreviewProps) {
       const match = /language-(\w+)/.exec(className || '');
       const codeString = String(props.children).replace(/\n$/, '');
       
+      // Map common language names to their Prism equivalents
+      const languageMap: Record<string, string> = {
+        'sh': 'shell',
+        'bash': 'shell',
+        'curl': 'shell',
+        'shell-session': 'shell',
+        'console': 'shell',
+      };
+
+      const language = match ? (languageMap[match[1]] || match[1]) : '';
+      
       return match ? (
-        <div className="relative">
+        <div className="relative my-4 rounded-lg overflow-hidden">
           <SyntaxHighlighter
             style={oneDark}
-            language={match[1]}
+            language={language}
             PreTag="div"
+            customStyle={{
+              margin: 0,
+              borderRadius: '0.5rem',
+            }}
           >
             {codeString}
           </SyntaxHighlighter>

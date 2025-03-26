@@ -4,6 +4,14 @@ import * as cheerio from 'cheerio';
 import TurndownService from 'turndown';
 import type { ConversionState } from '../types';
 
+// Add type definitions for turndown parameters
+interface TurndownNode {
+  nodeType: number;
+  tagName?: string;
+  className?: string;
+  getAttribute?: (name: string) => string | null;
+}
+
 export function useDocumentConverter(): ConversionState {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<ConversionState['status']>('idle');
@@ -26,33 +34,52 @@ export function useDocumentConverter(): ConversionState {
   // Add custom rules for better HTML to Markdown conversion
   turndownService.addRule('codeBlocks', {
     filter: ['pre', 'code'],
-    replacement: function(content, node) {
-      const language = node.getAttribute('class')?.match(/language-(\w+)/)?.[1] || '';
-      return `\n\`\`\`${language}\n${content.trim()}\n\`\`\`\n`;
+    replacement: function(content: string, node: TurndownNode) {
+      // Try to detect language from class names
+      const languageClasses = node.className?.match(/(?:language|lang)-(\w+)/);
+      const dataLanguage = node.getAttribute?.('data-language');
+      const language = languageClasses?.[1] || dataLanguage || '';
+      
+      // Clean up the content
+      let cleanContent = content.trim()
+        .replace(/^\n+|\n+$/g, '') // Remove leading/trailing newlines
+        .replace(/\n\s*\n/g, '\n'); // Remove multiple blank lines
+      
+      return '\n```' + language + '\n' + cleanContent + '\n```\n';
     }
   });
 
   // Add custom rule for tables
   turndownService.addRule('tables', {
     filter: ['table'],
-    replacement: function(content, node) {
+    replacement: function(content: string, node: TurndownNode) {
       if (!(node instanceof HTMLElement)) return content;
 
-      const table = cheerio.load(node);
+      const $ = cheerio.load(node as unknown as cheerio.AnyNode);
       let markdown = '\n';
 
       // Process headers
       const headers: string[] = [];
       const alignments: string[] = [];
-      table('thead tr th').each((_, th) => {
-        const header = table(th).text().trim();
-        headers.push(header);
-        alignments.push(':---:'); // Center align by default
-      });
+      
+      // Try to get headers from thead first, then first row
+      let headerElements = $('thead tr th');
+      if (headerElements.length === 0) {
+        headerElements = $('tr:first-child td, tr:first-child th');
+      }
 
-      if (headers.length === 0) {
-        table('tr:first-child td').each((_, td) => {
-          const header = table(td).text().trim();
+      // If no headers found, create default ones
+      if (headerElements.length === 0) {
+        const columnCount = Math.max(
+          ...Array.from($('tr')).map(row => $(row).find('td').length)
+        );
+        for (let i = 0; i < columnCount; i++) {
+          headers.push('Column ' + (i + 1));
+          alignments.push(':---:');
+        }
+      } else {
+        headerElements.each((_, th) => {
+          const header = $(th).text().trim() || ' '; // Use space for empty headers
           headers.push(header);
           alignments.push(':---:');
         });
@@ -63,11 +90,19 @@ export function useDocumentConverter(): ConversionState {
       markdown += '| ' + alignments.join(' | ') + ' |\n';
 
       // Process rows
-      table('tbody tr').each((_, tr) => {
+      $('tbody tr, thead tr:not(:first-child), tr:not(:first-child)').each((_, tr) => {
         const cells: string[] = [];
-        table(tr).find('td').each((_, td) => {
-          cells.push(table(td).text().trim());
+        $(tr).find('td, th').each((_, td) => {
+          let cellContent = $(td).text().trim();
+          // Replace empty cells with a space to maintain table structure
+          cells.push(cellContent || ' ');
         });
+        
+        // Ensure row has same number of columns as header
+        while (cells.length < headers.length) {
+          cells.push(' ');
+        }
+        
         if (cells.length > 0) {
           markdown += '| ' + cells.join(' | ') + ' |\n';
         }
@@ -80,10 +115,10 @@ export function useDocumentConverter(): ConversionState {
   // Add custom rule for links
   turndownService.addRule('links', {
     filter: ['a'],
-    replacement: function(content, node) {
+    replacement: function(content: string, node: TurndownNode) {
       if (!(node instanceof HTMLElement)) return content;
-      const href = node.getAttribute('href');
-      const title = node.getAttribute('title');
+      const href = node.getAttribute?.('href') || '';
+      const title = node.getAttribute?.('title');
       
       if (!href) return content;
       
@@ -97,21 +132,21 @@ export function useDocumentConverter(): ConversionState {
   // Add custom rule for definition lists
   turndownService.addRule('definitionList', {
     filter: ['dl'],
-    replacement: function(content) {
+    replacement: function(content: string) {
       return '\n' + content + '\n';
     }
   });
 
   turndownService.addRule('definitionTerm', {
     filter: ['dt'],
-    replacement: function(content) {
+    replacement: function(content: string) {
       return '\n**' + content + '**\n';
     }
   });
 
   turndownService.addRule('definitionDescription', {
     filter: ['dd'],
-    replacement: function(content) {
+    replacement: function(content: string) {
       return content + '\n';
     }
   });
@@ -193,9 +228,9 @@ export function useDocumentConverter(): ConversionState {
       });
     }
 
+    // Fix cheerio type usage
     const contentToConvert = mainContent.length ? mainContent : $('body');
     
-    // Clean up the content
     contentToConvert.find('*').each((_, element) => {
       const $element = $(element);
       // Remove empty elements
